@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Documentos de cliente e diagnóstico: nunca publicar
+*.doc
+*.docx
+_diagnostico/
+
+# Configuração local do Claude Code
+.claude/
