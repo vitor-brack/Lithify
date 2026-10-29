@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    # pywin32 e a Structured Storage só existem no Windows. O runner não tem o
+    # Word, então o teste de ida e volta do .doc é pulado pelo próprio skipif.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Instalar as dependências
+        run: python -m pip install -r requirements.txt
+
+      - name: Rodar os testes
+        run: python -m pytest -v -rs
