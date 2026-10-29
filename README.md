@@ -1,187 +1,141 @@
 # Lithify
 
-Compressor de imagens para laudos técnicos em Word.
+![A janela do Lithify recebe uma pasta com 6 fotos, comprime todas e mostra no log: antes 39.78 MB, depois 2.94 MB, economia de 92.6%](docs/lithify.gif)
 
-Reduz fotos de campo em alta resolução para tamanhos práticos sem perda perceptível, evitando que o Word trave ou que o documento final fique grande demais para enviar por e-mail.
+*Seis fotos de 4608×3456 px, com 6 a 7 MB cada, no preset Tela / PDF. As fotos são de [JFVelasquez Floro](https://commons.wikimedia.org/wiki/User:JFVelasquez_Floro), no Wikimedia Commons, em domínio público (CC0).*
 
-Tem dois modos:
+O Lithify é um programa para Windows que comprime as fotos de laudos técnicos feitos no Word. Ele reduz as fotos antes de elas entrarem no documento e, quando o documento já está pronto, comprime as imagens que estão dentro do `.docx` ou do `.doc`. No preset padrão, as fotos ficam com no máximo 1920 px no lado maior.
 
-- **Comprimir Imagens** *(recomendado)* — comprime as fotos da pasta antes de você inserir no Word.
-- **Comprimir Word** *(válvula de escape)* — recebe um `.doc` ou `.docx` pronto e comprime as imagens já embutidas.
+**[Baixar o Lithify.exe](https://github.com/vitor-brack/Lithify/releases/latest)** para Windows de 64 bits. É um arquivo só, que abre sem instalar nada.
 
----
+## Por que existe
 
-## Para o usuário final
+Fiz o Lithify para o meu pai, que é geólogo e monta laudos técnicos no Word com muitas fotos de campo. Um desses laudos chegou a 689 MB: o Word ficava lento e o arquivo era grande demais para mandar por e-mail. Parte do peso vinha de fotos coladas como "Imagem de bitmap" do Paint, que o Word guarda sem nenhuma compressão. Com o Lithify, o mesmo laudo caiu para 73 MB.
 
-### Instalação
+O nome vem de litificação, o processo geológico em que sedimentos soltos são compactados até virar rocha.
 
-1. Baixe o arquivo `Lithify.exe`.
-2. Coloque-o numa pasta da sua escolha (ex.: `C:\Users\Seu Nome\Programas\Lithify\`).
-3. Dê um duplo-clique para abrir.
+## O que dá para fazer
 
-Não precisa instalar Python nem nada extra. O arquivo é único e portátil.
+- Arrastar fotos ou uma pasta para a janela, inclusive com subpastas, e comprimir tudo de uma vez. Os formatos aceitos são JPEG, PNG, BMP, TIFF e WebP
+- Escolher entre três presets: **Tela / PDF** (1920 px e qualidade 82), **Impressão** (2500 px e qualidade 88) ou **Personalizado** (de 720 a 4000 px e qualidade de 60 a 95)
+- Salvar as fotos comprimidas numa subpasta `comprimidas/`, numa pasta à escolha ou, depois de uma confirmação, por cima das originais
+- Comprimir um `.docx` ou um `.doc` pronto. O resultado sai numa subpasta `comprimidos/`, com o mesmo nome e o mesmo formato do original
+- Reduzir as fotos coladas como "Imagem de bitmap" do Paint. O clique duplo na imagem continua abrindo o Paint
+- Manter a transparência dos PNGs, se a opção estiver marcada. Sem ela, o PNG vira JPEG com fundo branco
 
-> Na primeira vez, o Windows pode mostrar um aviso de segurança ("Windows Defender SmartScreen"). Clique em **Mais informações → Executar assim mesmo**.
+## Stack
 
-### Modo 1 — Comprimir Imagens (recomendado)
+- Python 3.10 ou mais novo
+- Tkinter (ttk) para a interface e [tkinterdnd2](https://github.com/Eliav2/tkinterdnd2) para arrastar e soltar
+- [Pillow](https://python-pillow.org/) para redimensionar e recomprimir as fotos
+- `zipfile`, da biblioteca padrão, para abrir e regravar o `.docx`
+- [olefile](https://github.com/decalage2/olefile) para ler os objetos OLE, e a Structured Storage do Windows, pelo [pywin32](https://github.com/mhammond/pywin32), para regravá-los
+- pywin32 também para controlar o Microsoft Word por COM na conversão de `.doc`
+- pytest, com 38 testes, e GitHub Actions no Windows com Python 3.10 e 3.13
+- PyInstaller, que gera o `Lithify.exe`
 
-Use **antes** de inserir as fotos no Word.
+## Como funciona
 
-1. Abra o Lithify.
-2. Na aba **Comprimir Imagens** (já vem selecionada), arraste as fotos ou a pasta inteira para a área grande no topo. Você também pode clicar em **Selecionar arquivos** ou **Selecionar pasta**.
-3. Escolha o preset:
-   - **Tela / PDF (recomendado)** — para laudos que serão lidos no computador ou exportados em PDF.
-   - **Impressão** — quando o laudo será impresso em papel.
-   - **Personalizado** — controle fino da resolução e qualidade.
-4. (Opcional) Escolha uma pasta de saída específica. Se deixar vazio, as fotos comprimidas vão para uma subpasta `comprimidas/` ao lado dos originais.
-5. Clique em **Comprimir**.
+```mermaid
+flowchart LR
+    subgraph gui [Interface]
+        A["Aba Comprimir Imagens"]
+        B["Aba Comprimir Word"]
+    end
+    A -->|"lista de fotos"| C["image_compressor<br>Pillow"]
+    B --> D["document_processor<br>lê os primeiros bytes"]
+    D -->|".docx"| E["docx_processor<br>abre o zip"]
+    D -->|".doc"| F["doc_converter<br>Word invisível, por COM"]
+    F -->|".docx temporário"| E
+    E -.->|"de volta para .doc"| F
+    E -->|"word/media"| C
+    E -->|"word/embeddings"| G["ole_processor<br>bitmaps do Paint"]
+```
 
-As fotos originais **não são alteradas** (a menos que você marque a caixa "Sobrescrever os arquivos originais", que pede confirmação).
+A interface roda a compressão numa thread separada e lê o progresso por uma fila a cada 100 ms, por isso a janela não trava durante um lote grande. As duas abas usam o mesmo `image_compressor`. Na aba do Word, o `document_processor` reconhece o formato pelos primeiros bytes do arquivo (`PK` do zip no `.docx` e `D0 CF 11 E0` do compound file no `.doc`) e só olha a extensão quando eles não batem com nenhum dos dois. O `.doc` passa pelo Word, que o converte num `.docx` temporário; depois da compressão, o Word converte de volta.
 
-Depois, é só inserir as fotos da pasta `comprimidas/` no seu documento Word normalmente.
+| Módulo | O que faz |
+|---|---|
+| `main.py` | Ponto de entrada. Grava o log em `%APPDATA%\Lithify\lithify.log` e aceita `--debug` |
+| `gui/main_window.py` | As duas abas, a thread de trabalho e a fila de progresso |
+| `core/image_compressor.py` | Comprime uma foto ou um lote. Gira a foto pela orientação do EXIF, reduz o lado maior com LANCZOS e salva um JPEG progressivo sem o EXIF |
+| `core/document_processor.py` | Reconhece o formato do documento e chama o caminho do `.docx` ou do `.doc` |
+| `core/docx_processor.py` | Recomprime as fotos de `word/media/` e passa os objetos de `word/embeddings/` para o `ole_processor` |
+| `core/ole_processor.py` | Reduz o bitmap guardado num objeto OLE do Paint e remonta o objeto |
+| `core/doc_converter.py` | Abre o Word invisível para converter `.doc` em `.docx` e de volta |
+| `core/exceptions.py` | Os erros do projeto, como `WordNotAvailableError` |
 
-### Modo 2 — Comprimir Word (válvula de escape)
+## Como rodar
 
-Use quando você já montou o documento com as fotos sem ter comprimido antes. Aceita os dois formatos: `.doc` (formato antigo) e `.docx` (formato moderno).
-
-> ⚠️ **Antes de usar, faça uma cópia de segurança do seu documento original.** O Lithify gera um arquivo novo numa pasta separada, mas é boa prática ter backup de qualquer documento importante.
-
-1. Vá para a aba **Comprimir Word**.
-2. Arraste o arquivo `.doc` ou `.docx` para a área de drop, ou clique para selecionar.
-3. Escolha o preset (mesmas opções do Modo 1).
-4. Clique em **Comprimir Word**.
-
-O resultado vai para uma subpasta `comprimidos/` ao lado do arquivo original, com o **mesmo nome e mesmo formato** do original (`.doc` continua `.doc`, `.docx` continua `.docx`).
-
-#### Sobre arquivos `.doc`
-
-Para comprimir `.doc`, o Lithify usa o **Microsoft Word instalado no seu computador** como conversor invisível. Fluxo:
-
-1. Word abre o `.doc` em segundo plano e salva como `.docx` temporário.
-2. Lithify comprime as imagens.
-3. Word converte de volta para `.doc` no destino final.
-
-O processo adiciona alguns segundos a mais (porque o Word precisa abrir e fechar). É normal.
-
-Se você não tiver Word instalado, o Lithify avisa com uma mensagem clara e sugere o workflow alternativo: abrir o `.doc` no Word, **Arquivo → Salvar como → Documento do Word (`.docx`)**, e usar o Lithify com o `.docx` resultante.
-
-### Dicas
-
-- **Quanto reduzo?** No preset padrão, fotos de 4K geralmente caem de ~8 MB para ~300-500 KB cada — sem que dê para perceber a diferença a olho nu em laudo impresso ou PDF.
-- **PNG com fundo transparente?** Por padrão, o Lithify converte para JPEG com fundo branco (mais compacto). Se a transparência for importante, marque a caixa "Preservar transparência".
-- **Imagens já otimizadas** (JPEG pequeno e dentro do limite de tamanho) são copiadas sem reencodar — você não perde qualidade tentando comprimir o que já está bom.
-- **Imagens vetoriais** (EMF, WMF, SVG) dentro do `.docx` são preservadas intactas. Não há perda nessas.
-- **"Bitmaps embutidos" (OLE Paint)**: às vezes uma imagem é colada no Word com Ctrl+V de fonte errada e fica armazenada como objeto OLE Paint (Bitmap Image). Isso explode o tamanho do arquivo (cada foto vira BMP cru de ~26 MB). O Lithify detecta e comprime esses casos também — o double-click ainda abre Paint normalmente, só com a imagem em resolução menor.
-
----
-
-## Para o desenvolvedor
-
-### Setup
+Precisa do Windows e do Python 3.10 ou mais novo.
 
 ```powershell
-git clone <repo>
+git clone https://github.com/vitor-brack/Lithify.git
 cd Lithify
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python main.py
 ```
 
-Requer Python 3.10+.
+Com `python main.py --debug`, o log detalhado aparece também no console.
 
-### Estrutura
-
-```
-Lithify/
-├── core/
-│   ├── exceptions.py
-│   ├── image_compressor.py    # núcleo: comprimir_imagem + comprimir_lote
-│   ├── ole_processor.py       # rewrite de OLE PBrush (Bitmap Image)
-│   ├── docx_processor.py      # comprimir_docx: word/media + word/embeddings
-│   ├── doc_converter.py       # automação Word/COM (.doc ↔ .docx)
-│   └── document_processor.py  # orquestrador: detecta formato e despacha
-├── gui/
-│   └── main_window.py         # MainWindow + ImageTab + DocxTab
-├── tests/
-│   ├── test_image_compressor.py
-│   ├── test_docx_processor.py
-│   ├── test_document_processor.py
-│   └── test_ole_processor.py
-├── main.py                    # ponto de entrada + logging
-├── requirements.txt
-├── pytest.ini
-└── README.md
-```
-
-`core/` é puro (sem GUI, sem `print`, sem side-effects globais), com type hints e callback de progresso opcional. A lógica de compressão de imagem mora apenas em `core/image_compressor.py` — `docx_processor.py` reutiliza, não reimplementa.
-
-A camada de Word/COM está isolada em `core/doc_converter.py`. O orquestrador `core/document_processor.py` é o único ponto que conhece os dois formatos: detecta `.doc` vs `.docx` por magic bytes e dispatcha. A GUI fala apenas com o orquestrador.
-
-#### Compressão de OLE Bitmap Images (`core/ole_processor.py`)
-
-Quando uma imagem é colada no Word como "Bitmap Image" (objeto OLE Paint), ela vai parar em `word/embeddings/oleObject*.bin` em vez de `word/media/`. Cada `.bin` é um OLE compound file com CLSID PBrush (`0003000A-...`) contendo dois streams pesados:
-
-- `\x01Ole10Native`: BMP cru de até 26 MB para uma foto 4K
-- `\x03PRINT`: cópia metafile do mesmo bitmap, mais 26 MB
-
-O `ole_processor` reescreve o compound usando a Win32 Structured Storage API (`pythoncom.StgCreateDocfile`):
-
-1. Extrai o BMP de `Ole10Native`, redimensiona com Pillow.
-2. Reconstrói o compound preservando CLSID, `\x01CompObj`, `\x01Ole`, etc.
-3. Descarta `\x03PRINT` (o Word regenera automaticamente ao salvar como `.doc`).
-
-O double-click na imagem ainda abre o Paint normalmente, só com bitmap menor. Em um laudo real do projeto: 689 MB → 73 MB (89% de redução).
-
-### Rodar os testes
+### Testes
 
 ```powershell
-python -m pytest tests/ -v
+python -m pytest -v
 ```
 
-Atualmente: 38 testes (compressor de imagem + processor de .docx + orquestrador .doc/.docx + ole_processor). Os fixtures de documento são gerados programaticamente em memória via `zipfile`, Pillow e `pythoncom.StgCreateDocfile` — não há binários no repositório.
+Os 38 testes montam em memória os documentos que usam, com `zipfile`, Pillow e a Structured Storage, então o repositório não guarda nenhum documento de exemplo. O teste que converte um `.doc` de ida e volta precisa do Word e é pulado quando ele não está instalado. É o que acontece no GitHub Actions, que roda os outros 37 a cada push.
 
-Testes que dependem de Win32 Structured Storage (`test_ole_processor.py`) ou de Microsoft Word (`test_integracao_doc_round_trip_produz_doc_valido`) são pulados automaticamente em ambientes sem essas dependências (`pytest.mark.skipif`).
-
-### Logging
-
-O `main.py` configura um `RotatingFileHandler` em:
-
-- Windows: `%APPDATA%\Lithify\lithify.log`
-- Outros: `~/.lithify/lithify.log`
-
-Para logging detalhado no console, rode com `--debug`:
-
-```powershell
-python main.py --debug
-```
-
-### Empacotamento (PyInstaller)
-
-Comando testado em Windows 11 + Python 3.13:
+### Gerar o executável
 
 ```powershell
 pyinstaller --onefile --windowed --name Lithify --collect-all tkinterdnd2 --collect-submodules win32com --collect-submodules pythoncom --hidden-import olefile --noconfirm main.py
 ```
 
-O resultado fica em `dist/Lithify.exe` (~26 MB). Flags importantes:
+O `Lithify.exe` sai em `dist\`, com uns 25 MB. O `--collect-all tkinterdnd2` inclui a DLL nativa do arrastar e soltar, e os dois `--collect-submodules` incluem as partes do pywin32 que o Word e a Structured Storage usam.
 
-- `--collect-all tkinterdnd2`: a `tkinterdnd2` carrega DLLs nativas (`tkdnd`) em runtime; sem isso o drag-and-drop quebra na primeira tentativa.
-- `--collect-submodules win32com --collect-submodules pythoncom`: garantem que pywin32 funcione no executável empacotado (necessário para abrir/converter `.doc` via Word **e** para reescrever OLE compound files via Structured Storage).
-- `--hidden-import olefile`: PyInstaller pode não detectar `olefile` automaticamente; este flag garante a inclusão.
+## Decisões de projeto (e por quê)
 
-Se quiser um `.exe` com ícone próprio, adicione `--icon caminho/para/icone.ico`.
+### 1. Comprimir antes de montar o documento
 
-Para limpar artefatos do build:
+O caminho recomendado é comprimir as fotos antes de inseri-las. Assim o Pillow trabalha direto nos arquivos, e o Word nem precisa estar instalado. A aba **Comprimir Word** existe para quando o documento já foi montado com as fotos originais.
 
-```powershell
-Remove-Item -Recurse -Force build, dist, Lithify.spec
-```
+### 2. O `.docx` aberto como zip
 
-### Como contribuir
+Um `.docx` é um arquivo zip. O Lithify recomprime só as fotos de `word/media/` e copia o resto como está, inclusive o XML do texto. Os nomes das fotos não mudam, mesmo quando um PNG vira JPEG, então nenhuma referência dentro do documento precisa ser reescrita. Imagens vetoriais, como EMF, WMF e SVG, ficam intactas.
 
-1. Crie um branch a partir de `main`.
-2. Adicione/atualize testes em `tests/` para cobrir o que mudou.
-3. Confira `python -m pytest tests/`.
-4. Abra o PR descrevendo a mudança e o motivo.
+### 3. Bitmaps do Paint remontados pela Structured Storage
 
-A regra mais importante: **toda lógica de compressão fica em `core/`** e é testável sem GUI. A GUI é só uma camada fina sobre o `core/`.
+Uma foto colada como "Imagem de bitmap" vai para `word/embeddings/` como um objeto OLE do Paint. Esse objeto é um compound file, o mesmo formato do `.doc`, com o BMP cru no stream `\x01Ole10Native` e uma cópia em metafile no `\x03PRINT`. O olefile lê esse formato, mas só regrava um stream sem mudar o tamanho dele, então o Lithify monta um objeto novo com a Structured Storage do Windows (`StgCreateDocfile`). O objeto novo mantém o CLSID e os outros streams, recebe o BMP reduzido e fica sem o `\x03PRINT`, que o Word gera de novo ao salvar como `.doc`. A imagem continua sendo um BMP, que é o que o Paint espera, por isso o clique duplo ainda abre o Paint.
+
+### 4. `.doc` convertido pelo próprio Word
+
+O `.doc` é um formato binário antigo, difícil de editar sem o Word. Por isso o Lithify abre o Word invisível pelo COM, com o `DispatchEx`, que sempre cria uma instância nova, separada de um Word que já esteja aberto. O Word converte o `.doc` num `.docx` temporário, o Lithify comprime as imagens e o Word converte de volta. Sem o Word instalado, o Lithify avisa e sugere salvar o documento como `.docx` no Word e usar esse arquivo.
+
+### 5. Nunca deixar o arquivo pior
+
+- O documento original nunca muda. As fotos originais só mudam se a opção de sobrescrever estiver marcada, e ela pede confirmação
+- O `.docx` novo é gravado num `.tmp` e só ocupa o lugar do arquivo final quando está completo
+- Um JPEG de até 150 KB que já cabe no tamanho máximo é copiado como está, sem passar por outra compressão
+- Dentro do documento, se a versão nova de uma imagem ou de um objeto OLE não ficar menor, a original fica
+- Se uma foto do lote falhar, as outras continuam
+
+## Limitações
+
+- Foi feito e testado para o Windows 11. A conversão de `.doc` e os bitmaps do Paint dependem do pywin32, que só existe no Windows
+- Comprimir `.doc` exige o Microsoft Word instalado
+- Objetos OLE que não são do Paint, como uma planilha do Excel colada no documento, não são comprimidos
+- O `.exe` não tem assinatura digital, por isso o Windows mostra o aviso do SmartScreen. Na primeira vez, clique em **Mais informações** e depois em **Executar assim mesmo**
+
+## Próximos passos
+
+- Assinar o executável, para o aviso do SmartScreen sumir
+- Gerar o `.exe` das Releases pelo GitHub Actions, a cada tag
+- Comprimir vários documentos do Word de uma vez
+- Dar ao `.exe` um ícone próprio
+
+## Licença
+
+[MIT](LICENSE)
