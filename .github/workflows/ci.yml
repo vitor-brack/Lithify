@@ -29,4 +29,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Rodar os testes
+        # No runner, a saída vai para um pipe em cp1252, e os acentos viram "�" no log.
+        env:
+          PYTHONIOENCODING: utf-8
         run: python -m pytest -v -rs
